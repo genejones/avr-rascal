@@ -21,6 +21,7 @@
 const owner-name = 'generjones'; //your Github user-name
 const repo-name = 'button-masher'; //your Github repo-name
 const file-path = 'flash.hex'; //the path to the .hex file within the repo
+const device = "ATMEGA328P"; //the device type of your AVR, choose among the devices table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
 //general constants. Don't modify unless you know what you are doing.
@@ -34,9 +35,11 @@ const github-URL-base = format('https://api.github.com/repos/%s/%s/', owner-name
 //flash size is how many words are present
 //page_zie defines how many words are in each page
 //each word is 2 bytes long, so a Flash Size of 1600 is 32 Kb
-ATMEGA328P = {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384, "PAGE_SIZE":64};
-ATMEGA328 = {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384, "PAGE_SIZE":64};
-ATMEGA168A = {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192, "PAGE_SIZE":64};
+devices = {
+"ATMEGA328P" : {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384, "PAGE_SIZE":64},
+"ATMEGA328" : {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384, "PAGE_SIZE":64},
+"ATMEGA168A" : {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192, "PAGE_SIZE":64},
+}
 
 function router(request, res){
 	try{
@@ -81,7 +84,7 @@ function github_request(request, res){
 					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
 					local canidateCommit = github.commits[0].id;
 					//Github, was the .hex file updated  on my repository recently?
-					hexFileInfoResponse <- http.get(github-URL-base + 'contents/' + file-path).sendsync();
+					hexFileInfoResponse <- http.get(github-URL-base + 'contents/' + file-path, {'Accept':"application/vnd.github.raw"}).sendsync();
 					if (hexFileInfoResponse.statuscode == 200){
 						//I was able to reach out to my friend at Github. What did he say?
 						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
@@ -98,7 +101,7 @@ function github_request(request, res){
 									//I'm going to jot down your commit ID so I don't forget I already let you in...
 									updatePermanent("lastCommit", canidateCommit);
 									//I'll get right on that update for you:
-									update_avr(hexInfo.html_url);
+									update_avr(hexInfo.content);
 								}
 								else{
 									raise "You imposter! I already wrote that commit! Go away!";
@@ -131,9 +134,8 @@ function github_request(request, res){
 	}
 }
 
-function update_avr(hex_http_address){
-	//given an http location co-relating to a .hex file,
-	//send it to the Imp device, and write it out
+function update_avr(content){
+	
 	
 }
 
