@@ -40,6 +40,7 @@ class ArduinoProgrammer {
 			write_flash();
 			verify_flash();
 			server.log("Successfully programmed AVR with new .hex file");
+			agent.send("avr reflash success");
 		}
 		catch error{
 			server.log("ERROR. Programming failed due to "+error);
@@ -116,7 +117,7 @@ prog.programAVR();
 In reality, we typically use this in conjunction with agent code
 See the following:
 */
-agent.on("arduino firmware change", function (target, hex_info){
+agent.on("avr firmware change", function (target, hex_info){
 	prog = ArduinoProgrammer(target, hex_info);
 	prog.programAVR();
 }

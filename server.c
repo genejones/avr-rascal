@@ -5,27 +5,40 @@
 *	All you need is a WiFi connection at your Arduino deploy location.
 *
 *
-*	This guy uses the AVR syntax directly
-*	It might be a little bit of a hack at times
+*	Warning: semi-literate programming used. I ain't Knux w/ Tex, that's for sure...
 *
-*released under CC-A 3.0; no guarantee of any kind is made for this code
+*	released under CC-A 3.0; no guarantee of any kind is made for this code
 */
 
 /*
 *
-* On the server (agent) the following code is used:
-*
+* This code is used server (agent) side.
+* I lknow there's...a lot here
+* It's all important though. Most of it only deals with the initial setup (getting the oAuth toekn from Github)
 */
 
 //define per-user constants
-const owner-name = 'generjones'; //your Github user-name
-const repo-name = 'button-masher'; //your Github repo-name
-const file-path = 'flash.hex'; //the path to the .hex file within the repo
-const target-name = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
+const OWNER_NAME = "generjones"; //your Github user-name
+const REPO_NAME = "button-masher"; //your Github REPO_NAME
+const FILE_PATH = "flash.hex"; //the path to the .hex file within the repo
+const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
+//heres some oAuth stuff
+//taken liberally from http://devwiki.electricimp.com/doku.php?id=example:howsthedaylooking
+//we use oAuth with Github so we can update statuses, and also not worry about quotas and the like
+server.log("agent started on "+http.agenturl());
+
+const GITHUB_CLIENT_ID = "7043c703ce1677c550d8";
+const GITHUB_CLIENT_SECRET = "26b7357b8df7958c31d43fe4529af0b852cf94b";
+
+
+const HOOK_SECRET = "You can't hack me! I'm invincible!"; //some random secret phrase for added protection from fake requests
+//don't share this with anyone!
+
+
 //general constants. Don't modify unless you know what you are doing.
-const github-URL-base = format('https://api.github.com/repos/%s/%s/', owner-name, repo-name);
+const GITHUB_URL_BASE = "https://api.github.com/repos/" + OWNER_NAME + "/" + REPO_NAME;
 
 
 //define device constants
@@ -44,7 +57,12 @@ targets = {
 function router(request, res){
 	try{
 		switch(request.path){
-			case "updateAVR":
+			case "/auth":
+				RedirectToGithub(res); //Stage 1
+			case "/oAuthCallback":
+				res.send(200, "OK");
+				ExchangeCodeForToken(req.query.code); //Stage 3
+			case "/updateAVR":
 				update_avr(request, res);
 			default:
 				if (request.method == "OPTIONS" && request.path == ""){
@@ -54,7 +72,7 @@ function router(request, res){
 				else if (request.method == "GET" && request.path == ""{
 					res.send(200, "OK", "This is the endpoint for an Electric Imp running the Secret Robot AVR reflash system. Only for private usage");
 				}
-				res.send(400, "Bad Request");
+				res.send(404, "Resource Does Not Exist");
 		}
 	}
 	catch(e){
@@ -78,13 +96,14 @@ function github_request(request, res){
 				//We will be diligent, wary, and awesome.
 				//Let no unhallowed code pass through.
 				
-				if (github.repository.owner.name == owner-name){
+				if (github.repository.owner.name == OWNER_NAME && github.secret == HOOK_SECRET){
 					//Alright Mr. Request...who sent you?
 					//Oh, I see from this note you carry that you were sent on my behalf by Github.
+					//And, you also carry the secret pass phrase me and Github setup a while ago...
 					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
 					local canidateCommit = github.commits[0].id;
 					//Github, was the .hex file updated  on my repository recently?
-					hexFileInfoResponse <- http.get(github-URL-base + 'contents/' + file-path, {'Accept':"application/vnd.github.raw"}).sendsync();
+					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + 'contents/' + FILE_PATH, {'Accept':"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token} ).sendsync();
 					if (hexFileInfoResponse.statuscode == 200){
 						//I was able to reach out to my friend at Github. What did he say?
 						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
@@ -143,33 +162,36 @@ function update_avr(info){
 		//this provides a nice, easy wasy to see the status of our deploy
 		
 		//insert actual work here
-		local target-properties = targets[target-name];
+		local target_properties = targets[TARGET_NAME];
 		//find out what our device is, and it's capabilities
-		if (info.size > target-properties.size){
+		if (info.size > target_properties.size){
 			//our target has too small of a flash memory
 			//this should have gotten caught by the GCC process
 			raise "Flash memory smaller than flash program";
 		}
 		
+		device.send("avr firmware change", target_properties, info); //just send the code right over to the Imp
+		//it's in his hands now.
 		
-		//we are all done now!
-		updateGithubStatus(info.sha, "success");
-		//alter the github status to reflect our awesomeness
+		device.on("avr reflash success", function (){
+			//we are all done now!
+			updateGithubStatus(info.sha, "success");
+			//alter the github status to reflect our awesomeness
+		});
 	}
 	catch e{
 		//something went horribly wrong during the deploy process
 		//sigh
 		//log it
 		server.log("Error during update process: "+e);
-		//and tell the whole world about our mistake
+		//and tell the whole world about our mistake on Github
 		updateGithubStatus(info.sha, "failure");
+		//wait, what? Too late now. Nobody goes to our Github page anyway, I'm sure it's fine...
 	}
 }
 
 function updateGithubStatus(commitID, status){
-	http.post(format('https://api.github.com/repos/%s/%s/statuses/%s', owner-name, repo-name, commitID)).send_sync();
-	/repos/:owner/:repo/statuses/:sha
-	
+	http.post(GITHUB_URL_BASE + "statuses/" + commitID), {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token).send_sync();
 }
 
 function updatePermanent(name, value){
@@ -178,4 +200,60 @@ function updatePermanent(name, value){
 	cachedPerm = server.permanent;
 	cachedPerm <- {name = value};
 	server.setpermanentvalues(cachedPerm);
+}
+
+function RedirectToGithub(res)
+{
+    res.header("Content-Type", "text/html");
+    local url = "https://github.com/login/oauth/authorize?";
+    url += http.urlencode({ 
+        "scope": "repo:status", //we only want to alter statuses, not do anything else nefarious on Github accounts
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": http.agenturl() + "/oAuthCallback"
+        })
+    res.header("Location", url);
+    res.send(302, "<a href="+url+">Click here</a>"); // 302 is a redirect
+}
+ 
+function ExchangeCodeForToken(code)
+{
+    local body = http.urlencode({
+        "code": code,
+        "client_id": GITHUB_CLIENT_ID,
+        "client_secret": GITHUB_CLIENT_SECRET
+    });
+    local t = http.post("https://github.com/login/oauth/access_token",
+        {"Accept":"application/json", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Secret Robot/Imp Agent"},
+        body).sendsync();
+    server.log("status = "+t.statuscode)
+    server.log("body = "+t.body)
+    local tt = http.jsondecode(t.body);
+    if (t.statuscode == 200) {
+        server.log("token = " + tt.access_token)
+        updatePermanent("Github_Token", tt.access_token);
+		setUpHook(); //set up a post-commit hook on the given Github account we jsut acessed
+    }
+}
+
+function setUpHook(){
+	//sets up a post-commit hook on this agent url,
+	//so that we get notified when hooks occur
+	//and can update teh AVR accordingly
+	local body = http.jsonencode({
+		"name":"web",
+		"active": true,
+		"events": [
+			"push",
+			"pull_request"
+		],
+		"config": {
+			"url" : http.agenturl()+"updateAVR",
+			"content_type": "json",
+			"secret": HOOK_SECRET
+		}
+	});
+	response <- http.post(GITHUB_URL_BASE + "statuses/" + commitID), {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token}, body).send_sync();
+	if (! response.statuscode == 201){
+		server.log("Hook was not setup correctly");
+	}
 }
