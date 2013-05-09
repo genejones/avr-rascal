@@ -21,7 +21,7 @@
 const owner-name = 'generjones'; //your Github user-name
 const repo-name = 'button-masher'; //your Github repo-name
 const file-path = 'flash.hex'; //the path to the .hex file within the repo
-const device = "ATMEGA328P"; //the device type of your AVR, choose among the devices table below. ATmega328P is typical for Arduino Uno and Diecemillia.
+const target-name = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
 //general constants. Don't modify unless you know what you are doing.
@@ -35,7 +35,7 @@ const github-URL-base = format('https://api.github.com/repos/%s/%s/', owner-name
 //flash size is how many words are present
 //page_zie defines how many words are in each page
 //each word is 2 bytes long, so a Flash Size of 1600 is 32 Kb
-devices = {
+targets = {
 "ATMEGA328P" : {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384, "PAGE_SIZE":64},
 "ATMEGA328" : {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384, "PAGE_SIZE":64},
 "ATMEGA168A" : {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192, "PAGE_SIZE":64},
@@ -101,7 +101,7 @@ function github_request(request, res){
 									//I'm going to jot down your commit ID so I don't forget I already let you in...
 									updatePermanent("lastCommit", canidateCommit);
 									//I'll get right on that update for you:
-									update_avr(hexInfo.content);
+									update_avr(hexInfo.bindenv(this));
 								}
 								else{
 									raise "You imposter! I already wrote that commit! Go away!";
@@ -134,8 +134,41 @@ function github_request(request, res){
 	}
 }
 
-function update_avr(content){
-	
+function update_avr(info){
+	//expects a table, with "content" containing the actual, raw, .hex file...
+	//and "length" as well, which we use to determine the length, funnily enough
+	try{
+		//alright, let's get started by telling Github that we are starting the deploy process
+		updateGithubStatus(info.sha, "pending");
+		//this provides a nice, easy wasy to see the status of our deploy
+		
+		//insert actual work here
+		local target-properties = targets[target-name];
+		//find out what our device is, and it's capabilities
+		if (info.size > target-properties.size){
+			//our target has too small of a flash memory
+			//this should have gotten caught by the GCC process
+			raise "Flash memory smaller than flash program";
+		}
+		
+		
+		//we are all done now!
+		updateGithubStatus(info.sha, "success");
+		//alter the github status to reflect our awesomeness
+	}
+	catch e{
+		//something went horribly wrong during the deploy process
+		//sigh
+		//log it
+		server.log("Error during update process: "+e);
+		//and tell the whole world about our mistake
+		updateGithubStatus(info.sha, "failure");
+	}
+}
+
+function updateGithubStatus(commitID, status){
+	http.post(format('https://api.github.com/repos/%s/%s/statuses/%s', owner-name, repo-name, commitID)).send_sync();
+	/repos/:owner/:repo/statuses/:sha
 	
 }
 

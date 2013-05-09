@@ -18,7 +18,7 @@ const SIGNATURE-CHECK = "\x30\x00";
 const SYNC-CHECK-PROG = 0x53;
 
 class ArduinoProgrammer {
-	constructor(hex){
+	constructor(target, hex_info){
 		attempt = 0; //the programming attempt we are currently on
 		//configure hardware for our usage
 		hardware.pin7.configure(DIGITAL_OUT_OD_PULLUP) //this will be our reset pin
@@ -27,7 +27,8 @@ class ArduinoProgrammer {
 		local spi_speed = hardware.spi.configure(MSB_FIRST|CLOCK_IDLE_LOW,300);
 		server.log(format("Configured SPI to run at %s", spi_speed));
 		spi = hardware.spi257;
-		hex_info = hex;
+		hex_info = hex_info;
+		target = target;
 	}
 	function programAVR(){
 	server.log("Starting AVR programming process now");
@@ -98,20 +99,16 @@ class ArduinoProgrammer {
 		
 		for (int i=0; i<=hex_info.size; i+target.PAGE_SIZE){
 			//let's write this page to Flash memory!
-			//first, we need to get the hex code:
-			agent.get("hex-page", i);
-			agent.on("recieve-hex-page", function (hex_blob){
-				//first send LOAD PROGRAM MEMORY PAGE instruction
-				spi.write();
-				//then send the data
-				spi.write();
-				//then issue WRITE PROGRAM MEMORY PAGE instruction
-				imp.sleep(0.045); //wait 4.5ms until the flash location has been written to
-		}
+			//first send LOAD PROGRAM MEMORY PAGE instruction
+			spi.write();
+			//then send the data
+			spi.write();
+			//then issue WRITE PROGRAM MEMORY PAGE instruction
+			imp.sleep(0.045); //wait 4.5ms until the flash location has been written to
 	}
 }
 
-prog = ArduinoProgrammer(Blob(4000));
+prog = ArduinoProgrammer();
 prog.programAVR();
 //tada!
 
@@ -119,8 +116,8 @@ prog.programAVR();
 In reality, we typically use this in conjunction with agent code
 See the following:
 */
-agent.on("arduino firmware change", function (hex){
-	prog = ArduinoProgrammer(hex);
+agent.on("arduino firmware change", function (target, hex_info){
+	prog = ArduinoProgrammer(target, hex_info);
 	prog.programAVR();
 }
 //hex, ArduinoProgrammer class are garbage collected after run
