@@ -1,8 +1,14 @@
 /*
-*	Programming Arduino via Interface Message Processor
-*	Pawimp
+*	Secret Robot
+*	Reprogram an arduino anywhere!
+*	Uses an Electric Imp, some hardware, some code, and some magic.
+*	All you need is a WiFi connection at your Arduino deploy location.
+*
+*
 *	This guy uses the AVR syntax directly
 *	It might be a little bit of a hack at times
+*
+*released under CC-A 3.0; no guarantee of any kind is made for this code
 */
 
 const PROG-ENABLE = "\xAC\x53\x00\x00";
@@ -11,23 +17,13 @@ const CHIP-ERASE-DELAY = 0.09; //need to wait for a good 90ms before doing after
 const SIGNATURE-CHECK = "\x30\x00";
 const SYNC-CHECK-PROG = 0x53;
 
-//taken from 28.3 and 28.5 in the Atmel AVR doc
-//signature is what we expect the value to be
-//flash size is how many words are present
-//page_zie defines how many words are in each page
-//each word is 2 bytes long, so a Flash Size of 1600 is 32 Kb
-ATMEGA328P = {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384, "PAGE_SIZE":64};
-ATMEGA328 = {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384, "PAGE_SIZE":64};
-ATMEGA168A = {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192, "PAGE_SIZE":64};
-
-
 class ArduinoProgrammer {
 	constructor(hex){
 		attempt = 0; //the programming attempt we are currently on
 		//configure hardware for our usage
 		hardware.pin7.configure(DIGITAL_OUT_OD_PULLUP) //this will be our reset pin
 		resetPin = hardware.pin7;
-		//it should be pulled up most of the time, so we don't errently pull the avr into a reset
+		//it should be pulled up most of the time, so we don't inadverrently pull the avr into a reset
 		local spi_speed = hardware.spi.configure(MSB_FIRST|CLOCK_IDLE_LOW,300);
 		server.log(format("Configured SPI to run at %s", spi_speed));
 		spi = hardware.spi257;
