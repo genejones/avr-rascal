@@ -11,11 +11,11 @@
 *released under CC-A 3.0; no guarantee of any kind is made for this code
 */
 
-const PROG-ENABLE = "\xAC\x53\x00\x00";
-const CHIP-ERASE = "\xAC\x80\x00\x00";
-const CHIP-ERASE-DELAY = 0.09; //need to wait for a good 90ms before doing after erasing chip
-const SIGNATURE-CHECK = "\x30\x00";
-const SYNC-CHECK-PROG = 0x53;
+PROG-ENABLE <- "\xAC\x53\x00\x00";
+CHIP-ERASE <- "\xAC\x80\x00\x00";
+CHIP-ERASE-DELAY <- 0.09; //need to wait for a good 90ms before doing after erasing chip
+SIGNATURE-CHECK <- "\x30\x00";
+SYNC-CHECK-PROG <- 0x53;
 
 class ArduinoProgrammer {
 	constructor(target, hex_info){
@@ -42,7 +42,7 @@ class ArduinoProgrammer {
 			server.log("Successfully programmed AVR with new .hex file");
 			agent.send("avr reflash success");
 		}
-		catch error{
+		catch (error) {
 			server.log("ERROR. Programming failed due to "+error);
 			attempt++;
 			if (attempt<3){
@@ -53,9 +53,9 @@ class ArduinoProgrammer {
 	
 	function resetAVR(){
 		resetPin.write(0); //pull pin7 low to reset the system
-		imp.sleep(.25); //and wait .25s to ensure the AVR resets
+		imp.sleep(0.25); //and wait .25s to ensure the AVR resets
 		resetPin.write(1); //
-		imp.sleep(.05); //wait 50ms to allow the AVR to wake back up
+		imp.sleep(0.05); //wait 50ms to allow the AVR to wake back up
 	}
 	
 	function enable_programming_request(){
@@ -69,13 +69,13 @@ class ArduinoProgrammer {
 	function verify_signature(){
 		//we need to see if the device signature is correct
 		//we DO NOT want to program an ATTiny8 as if it was an ATMega328
-		local observed-sig = blob(3);
+		local observed_sig = blob(3);
 		for (local i=0; i<3; i++){
 			spi.write(SIGNATURE-CHECK + 0);
-			observed-sig[i] = spi.readblob(1)//we expect a single blob response
+			observed_sig[i] = spi.readblob(1)//we expect a single blob response
 		}
-		if (target.SIG != observed-sig){
-			throw "Target device signature was incorrect. Expected "+target.SIG+" but recieved "+observed-sig;
+		if (target.SIG != observed_sig){
+			throw "Target device signature was incorrect. Expected "+target.SIG+" but recieved "+observed_sig;
 		}
 		return 1;
 		//everything checked out!
@@ -98,7 +98,7 @@ class ArduinoProgrammer {
 		//note that due to memory constraints on the Imp, we don't load the entire .hex at the same time
 		//so we verify the bit of the .hex we have, then grab some more
 		
-		for (int i=0; i<=hex_info.size; i+target.PAGE_SIZE){
+		for (local i=0; i<=hex_info.size; i+target.PAGE_SIZE){
 			//let's write this page to Flash memory!
 			//first send LOAD PROGRAM MEMORY PAGE instruction
 			spi.write();
@@ -106,20 +106,8 @@ class ArduinoProgrammer {
 			spi.write();
 			//then issue WRITE PROGRAM MEMORY PAGE instruction
 			imp.sleep(0.045); //wait 4.5ms until the flash location has been written to
+		}
 	}
-}
-
-prog = ArduinoProgrammer();
-prog.programAVR();
-//tada!
-
-/*
-In reality, we typically use this in conjunction with agent code
-See the following:
-*/
-agent.on("avr firmware change", function (target, hex_info){
-	prog = ArduinoProgrammer(target, hex_info);
-	prog.programAVR();
 }
 //hex, ArduinoProgrammer class are garbage collected after run
 
@@ -127,3 +115,7 @@ agent.on("avr firmware change", function (target, hex_info){
 //Max Flash size on an ATMEGA-328P is 34Kb
 //There are 40KB of user-code-RAM; 34Kb/40Kb used by Hex File AND more RAM needed for other aspects of the code
 //I will look into splitting hex into chunks and downloading chunks as needed later
+agent.on("avr firmware change", function (target, hex_info){
+	prog = ArduinoProgrammer(target, hex_info);
+	prog.programAVR();
+});

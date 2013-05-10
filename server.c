@@ -20,7 +20,7 @@
 //define per-user constants
 const OWNER_NAME = "generjones"; //your Github user-name
 const REPO_NAME = "button-masher"; //your Github REPO_NAME
-const FILE_PATH = "flash.hex"; //the path to the .hex file within the repo
+const FILE_PATH = "./build/uno/firmware.hex"; //the path to the .hex file within the repo. By default, using the ino build-system, it should be './build/uno/firmware.hex'
 const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
@@ -38,7 +38,7 @@ const HOOK_SECRET = "You can't hack me! I'm invincible!"; //some random secret p
 
 
 //general constants. Don't modify unless you know what you are doing.
-const GITHUB_URL_BASE = "https://api.github.com/repos/" + OWNER_NAME + "/" + REPO_NAME;
+GITHUB_URL_BASE <- "https://api.github.com/repos/" + OWNER_NAME + "/" + REPO_NAME;
 
 
 //define device constants
@@ -69,7 +69,7 @@ function router(request, res){
 					res.header("ALLOW", "GET,PUT,DELETE,OPTIONS");
 					res.send(200, "OK");
 				}
-				else if (request.method == "GET" && request.path == ""{
+				else if (request.method == "GET" && request.path == ""){
 					res.send(200, "OK", "This is the endpoint for an Electric Imp running the Secret Robot AVR reflash system. Only for private usage");
 				}
 				res.send(404, "Resource Does Not Exist");
@@ -103,7 +103,7 @@ function github_request(request, res){
 					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
 					local canidateCommit = github.commits[0].id;
 					//Github, was the .hex file updated  on my repository recently?
-					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + 'contents/' + FILE_PATH, {'Accept':"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token} ).sendsync();
+					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + "contents/" + FILE_PATH, {"Accept":"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token} ).sendsync();
 					if (hexFileInfoResponse.statuscode == 200){
 						//I was able to reach out to my friend at Github. What did he say?
 						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
@@ -123,7 +123,7 @@ function github_request(request, res){
 									update_avr(hexInfo.bindenv(this));
 								}
 								else{
-									raise "You imposter! I already wrote that commit! Go away!";
+									raise ("You imposter! I already wrote that commit! Go away!");
 								}
 							}
 							else{
@@ -167,7 +167,7 @@ function update_avr(info){
 		if (info.size > target_properties.size){
 			//our target has too small of a flash memory
 			//this should have gotten caught by the GCC process
-			raise "Flash memory smaller than flash program";
+			raise ("Flash memory smaller than flash program");
 		}
 		
 		device.send("avr firmware change", target_properties, info); //just send the code right over to the Imp
@@ -179,7 +179,7 @@ function update_avr(info){
 			//alter the github status to reflect our awesomeness
 		});
 	}
-	catch e{
+	catch (e){
 		//something went horribly wrong during the deploy process
 		//sigh
 		//log it
@@ -190,8 +190,10 @@ function update_avr(info){
 	}
 }
 
-function updateGithubStatus(commitID, status){
-	http.post(GITHUB_URL_BASE + "statuses/" + commitID), {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token).send_sync();
+function updateGithubStatus(commitID, status, description){
+	local headers = {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token};
+	local payload = http.jsonencode({"state":status, "description":description});
+	http.post(GITHUB_URL_BASE + "statuses/" + commitID, headers, payload).send_sync();
 }
 
 function updatePermanent(name, value){
@@ -217,7 +219,7 @@ function RedirectToGithub(res)
  
 function ExchangeCodeForToken(code)
 {
-    local body = http.urlencode({
+    local body = http.jsonencode({
         "code": code,
         "client_id": GITHUB_CLIENT_ID,
         "client_secret": GITHUB_CLIENT_SECRET
@@ -252,7 +254,7 @@ function setUpHook(){
 			"secret": HOOK_SECRET
 		}
 	});
-	response <- http.post(GITHUB_URL_BASE + "statuses/" + commitID), {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token}, body).send_sync();
+	response <- http.post(GITHUB_URL_BASE + "statuses/" + commitID, {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token}, body).send_sync();
 	if (! response.statuscode == 201){
 		server.log("Hook was not setup correctly");
 	}
