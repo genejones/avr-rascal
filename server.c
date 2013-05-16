@@ -19,7 +19,7 @@
 
 //define per-user constants
 const OWNER_NAME = "generjones"; //your Github user-name
-const REPO_NAME = "button-masher"; //your Github REPO_NAME
+const REPO_NAME = "blink"; //your Github REPO_NAME
 const FILE_PATH = "./build/uno/firmware.hex"; //the path to the .hex file within the repo. By default, using the ino build-system, it should be './build/uno/firmware.hex'
 const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
@@ -29,8 +29,8 @@ const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targe
 //we use oAuth with Github so we can update statuses, and also not worry about quotas and the like
 server.log("agent started on "+http.agenturl());
 
-const GITHUB_CLIENT_ID = "7043c703ce1677c550d8";
-const GITHUB_CLIENT_SECRET = "26b7357b8df7958c31d43fe4529af0b852cf94b";
+const GITHUB_TOKEN = ""
+//see https://github.com/blog/1509-personal-api-tokens on how to generate the above
 
 
 const HOOK_SECRET = "You can't hack me! I'm invincible!"; //some random secret phrase for added protection from fake requests
@@ -48,7 +48,7 @@ GITHUB_URL_BASE <- "https://api.github.com/repos/" + OWNER_NAME + "/" + REPO_NAM
 //flash size is how many words are present
 //page_zie defines how many words are in each page
 //each word is 2 bytes long, so a Flash Size of 1600 is 32 Kb
-targets = {
+targets <- {
 "ATMEGA328P" : {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384, "PAGE_SIZE":64},
 "ATMEGA328" : {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384, "PAGE_SIZE":64},
 "ATMEGA168A" : {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192, "PAGE_SIZE":64},
@@ -56,27 +56,23 @@ targets = {
 
 function router(request, res){
 	try{
-		switch(request.path){
-			case "/auth":
-				RedirectToGithub(res); //Stage 1
-			case "/oAuthCallback":
-				res.send(200, "OK");
-				ExchangeCodeForToken(req.query.code); //Stage 3
-			case "/updateAVR":
-				update_avr(request, res);
-			default:
-				if (request.method == "OPTIONS" && request.path == ""){
-					res.header("ALLOW", "GET,PUT,DELETE,OPTIONS");
-					res.send(200, "OK");
-				}
-				else if (request.method == "GET" && request.path == ""){
-					res.send(200, "OK", "This is the endpoint for an Electric Imp running the Secret Robot AVR reflash system. Only for private usage");
-				}
-				res.send(404, "Resource Does Not Exist");
-		}
+			switch(request.path){
+				case "/updateAVR":
+					github_request(request, res)
+				default:
+					if (request.method == "OPTIONS" && request.path == ""){
+						res.header("ALLOW", "GET,PUT,DELETE,OPTIONS");
+						res.send(200, "OK");
+					}
+					else if (request.method == "GET" && request.path == ""){
+						res.send(200, "This Rascal needs setup, captain!");
+					}
+					res.send(404, "Resource Does Not Exist");
+			}
 	}
 	catch(e){
-		res.send(500, "Server Error" + e);
+		res.send(500, "Server Error: " + e);
+		raise(e);
 	}
 }
 
@@ -103,7 +99,7 @@ function github_request(request, res){
 					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
 					local canidateCommit = github.commits[0].id;
 					//Github, was the .hex file updated  on my repository recently?
-					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + "contents/" + FILE_PATH, {"Accept":"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token} ).sendsync();
+					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + "contents/" + FILE_PATH, {"Accept":"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+GITHUB_TOKEN} ).sendsync();
 					if (hexFileInfoResponse.statuscode == 200){
 						//I was able to reach out to my friend at Github. What did he say?
 						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
@@ -158,10 +154,9 @@ function update_avr(info){
 	//and "length" as well, which we use to determine the length, funnily enough
 	try{
 		//alright, let's get started by telling Github that we are starting the deploy process
-		updateGithubStatus(info.sha, "pending");
+		updateGithubStatus(info.sha, "pending", "Rascal is on the job!");
 		//this provides a nice, easy wasy to see the status of our deploy
 		
-		//insert actual work here
 		local target_properties = targets[TARGET_NAME];
 		//find out what our device is, and it's capabilities
 		if (info.size > target_properties.size){
@@ -191,9 +186,9 @@ function update_avr(info){
 }
 
 function updateGithubStatus(commitID, status, description){
-	local headers = {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token};
+	local headers = {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+GITHUB_TOKEN};
 	local payload = http.jsonencode({"state":status, "description":description});
-	http.post(GITHUB_URL_BASE + "statuses/" + commitID, headers, payload).send_sync();
+	http.post(GITHUB_URL_BASE + "statuses/" + commitID, headers, payload).sendsync();
 }
 
 function updatePermanent(name, value){
@@ -204,39 +199,6 @@ function updatePermanent(name, value){
 	server.setpermanentvalues(cachedPerm);
 }
 
-function RedirectToGithub(res)
-{
-    res.header("Content-Type", "text/html");
-    local url = "https://github.com/login/oauth/authorize?";
-    url += http.urlencode({ 
-        "scope": "repo:status", //we only want to alter statuses, not do anything else nefarious on Github accounts
-        "client_id": GITHUB_CLIENT_ID,
-        "redirect_uri": http.agenturl() + "/oAuthCallback"
-        })
-    res.header("Location", url);
-    res.send(302, "<a href="+url+">Click here</a>"); // 302 is a redirect
-}
- 
-function ExchangeCodeForToken(code)
-{
-    local body = http.jsonencode({
-        "code": code,
-        "client_id": GITHUB_CLIENT_ID,
-        "client_secret": GITHUB_CLIENT_SECRET
-    });
-    local t = http.post("https://github.com/login/oauth/access_token",
-        {"Accept":"application/json", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Secret Robot/Imp Agent"},
-        body).sendsync();
-    server.log("status = "+t.statuscode)
-    server.log("body = "+t.body)
-    local tt = http.jsondecode(t.body);
-    if (t.statuscode == 200) {
-        server.log("token = " + tt.access_token)
-        updatePermanent("Github_Token", tt.access_token);
-		setUpHook(); //set up a post-commit hook on the given Github account we jsut acessed
-    }
-}
-
 function setUpHook(){
 	//sets up a post-commit hook on this agent url,
 	//so that we get notified when hooks occur
@@ -245,17 +207,17 @@ function setUpHook(){
 		"name":"web",
 		"active": true,
 		"events": [
-			"push",
-			"pull_request"
+			"push"
 		],
 		"config": {
-			"url" : http.agenturl()+"updateAVR",
+			"url" : http.agenturl()+"/updateAVR",
 			"content_type": "json",
 			"secret": HOOK_SECRET
 		}
 	});
-	response <- http.post(GITHUB_URL_BASE + "statuses/" + commitID, {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+server.permanent.Github_Token}, body).send_sync();
+	response <- http.post(GITHUB_URL_BASE + "hooks/" {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":"token "+GITHUB_TOKEN}, body).sendsync();
 	if (! response.statuscode == 201){
 		server.log("Hook was not setup correctly");
 	}
+	updatePermanent("hookSetup", true);
 }

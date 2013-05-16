@@ -111,7 +111,7 @@ class ArduinoProgrammer {
 }
 //hex, ArduinoProgrammer class are garbage collected after run
 
-//hex can use up signifigant portion of user-memory 
+//hex can use up signifigant portion of user-memory
 //Max Flash size on an ATMEGA-328P is 34Kb
 //There are 40KB of user-code-RAM; 34Kb/40Kb used by Hex File AND more RAM needed for other aspects of the code
 //I will look into splitting hex into chunks and downloading chunks as needed later
