@@ -2,6 +2,10 @@
 
 Update your Arduino program auto-magically through the power of Electric Imp!
 
+Server.C runs on the Imp Agent, flashChip.c runs on the Imp.
+
+Both are untested, though server.c can successfully run github queries...
+
 Due to the difficulty of obtaining the firmware.hex with the normal Arduino IDE (and the lack of easy git support), I reccomend using [InoTool](http://inotool.org/).
 With Ino, the process is very, very simple:
 

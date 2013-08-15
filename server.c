@@ -20,7 +20,7 @@
 //define per-user constants
 const OWNER_NAME = "genejones"; //your Github user-name
 const REPO_NAME = "blink"; //your Github REPO_NAME
-const FILE_PATH = "./build/uno/firmware.hex"; //the path to the .hex file within the repo. By default, using the ino build-system, it should be './build/uno/firmware.hex'
+const FILE_PATH = ".build/uno/firmware.hex"; //the path to the .hex file within the repo. By default, using the ino build-system, it should be './build/uno/firmware.hex'
 const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
 //can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
@@ -88,18 +88,21 @@ function github_request(request, res){
 					//Oh, I see from this note you carry that you were sent on my behalf by Github.
 					//And, you also carry the secret pass phrase me and Github setup a while ago...
 					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
+					//all request IPs should be within the ranges of: 204.232.175.64/27, 192.30.252.0/22
 					local canidateCommit = github.commits[0].id;
 					server.log("canidate Commit " + canidateCommit);
-					updateGithubStatus(canidateCommit, "pending", "Secret Robot is uploading everything now");
+					//updateGithubStatus(canidateCommit, "pending", "Secret Robot is uploading everything now");
 					//Github, was the .hex file updated  on my repository recently?
-					server.log(ITHUB_URL_BASE + "/contents/" + FILE_PATH);
+					server.log(GITHUB_URL_BASE + "/contents/" + FILE_PATH);
 					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + "/contents/" + FILE_PATH, {"Accept":"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":getAuthority()} ).sendsync();
 					if (hexFileInfoResponse.statuscode == 200){
 						server.log("good response from github");
 						//I was able to reach out to my friend at Github. What did he say?
 						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
-                        server.log(hexFileInfoResponse.body);
+                        server.log(hexInfo.sha);
 						if (hexInfo.sha == canidateCommit){
+							//ensure the most recent update to the .hex occured on this most recent commit
+							//no need to reset if, for instance, the README was the only thing affected...
 							update_avr(hexInfo.bindenv(this));
 							//All right, let's get to the .hex writing!
 							//update_avr(hexInfo.html_url);
@@ -140,7 +143,7 @@ function update_avr(info){
 		}
 		
         server.log("sending over to the Imp");
-		device.send("avr firmware change", target_properties, info); //just send the code right over to the Imp
+		device.send("avr firmware change", target_properties, info.content); //just send the code right over to the Imp
 		//it's in his hands now.
 		
 		device.on("avr reflash success", function (){
