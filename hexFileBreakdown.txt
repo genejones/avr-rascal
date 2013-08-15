@@ -1,0 +1,6 @@
+:100000000C9462000C948A000C948A000C948A0070
+
+:10 - bytelength (16)
+0000 - lfash address
+000C9462000C948A000C948A000C948A00 - data (16 bytes)
+70 - checksum of data

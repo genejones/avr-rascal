@@ -6,8 +6,16 @@
 //http://www.sbprojects.com/knowledge/fileformats/intelhex.php
 
 function splitHex(hexString){
-	local lines = String.split(hexString, "\n");
+	//split each instruction in the hex File by newline instructions (0x0D0A)
+	local lines = String.split(hexString, "\r\n");
 	return lines;
+}
+
+function extractAddressAndData(hexString){
+	local lines = splitHex(hexString);
+	for (line in lines){
+		local result = understandHex(line);
+	}
 }
 
 function convertHexToInteger(hex){
@@ -47,35 +55,50 @@ function convertHexToInteger(hex){
 
 function integerToBlob(integer){
 	local blob_result = blob(1);
-	blob_result.writen(integer, 'b'); //write the integer result as an unsigned 8-bit integer (basically, a single byte!)
+	blob_result.writen(integer, 'b'); //write the integer result as an unsigned 8-bit integer (basically, a single byte)
 	return blob_result;
 }
 
+//needs hex to be split by line...
 function understandHex(hexLine){
+	//Recall that we come close to the Max RAM on the Imp when programming, so saving the table space is worth it.
 	if (!hexLine[0] == ':'){
 		raise ("Error: hex format not correct, must contain : on start of each line");
 	}
-	local length = len(hexLine);
 	local byteCount = convertHexToInteger(hexLine[1:2]);
-	local addressField = blob(2);
-	addressField.writen(convertHexToInteger(hexLine[3:4]), 'b');
-	addressField.writen(convertHexToInteger(hexLine[5:6]), 'b');
+	local address = blob(2);
+	address.writen(convertHexToInteger(hexLine[3:4]), 'b');
+	address.writen(convertHexToInteger(hexLine[5:6]), 'b');
 	local recordType = hexLine[8];
-	local data = blob(0);
+	local dataPayload = blob(byteCount);
 	for (local i =0; i<byteCount; i++){
 		local datum = convertHexToInteger(hexLine[8 + i: 9 + i]);
-		data.writen(datum, 'b');
+		dataPayload.writen(datum, 'b');
 	}
-	local checksum = convertHexToInteger(hexLine[byteCount + 10: byteCount + 11]);
-	//I am not checking the checksum
+	//local checksum = convertHexToInteger(hexLine[byteCount + 10: byteCount + 11]);
+	//I am not checking the checksum, HTTPS checksum already ensures integrity
+	//if the checksum fails, we have bigger problems, so let's just assume it would have never failed
 	if (recordType = '0'){
-		//record is data, nothing special here
+		//record is data, program chip...
+		spi.write(STK_LOAD_ADDRESS + address + SYNC_CRC_EOP);
+		//#55#00#00#20 STK_LOAD_ADDRESS, 0×0000(address location), SYNC_CRC_EOP
+		//now write the data to the address...
+		spi.write(STK_PROGRAM_PAGE + byteCount + 'F' +  dataPayload + SYNC_CRC_EOP);
+		//STK_PROGRAM_PAGE, 0×0080 (page size), ‘F’(flash memory), data bytes…,SYNC_CRC_EOP
+		imp.sleep(0.045); //wait 4.5ms until the flash location has been written to
 	}
 	else if (recordType = '1'){
 		//this is the last record. It's empty, should have no data, checksum should be 'FF'
+		//assert byteCount is 00
+		if (byteCount == 00){
+			exitProgramMode();
+		}
+		else{
+			raise ("Error: final record contains more than 0 bytes. Abort.");
+		}
 	}
 	else{
 		raise ("Error: in hex format, Extended Address modes NOT accepted. Record type must be 0x00 or 0x01");
 	}
-	return data;
+	return results;
 }

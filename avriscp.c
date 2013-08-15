@@ -67,12 +67,6 @@ void pulse(int pin, int times);
 
 void setup() {
   Serial.begin(19200);
-  pinMode(LED_PMODE, OUTPUT);
-  pulse(LED_PMODE, 2);
-  pinMode(LED_ERR, OUTPUT);
-  pulse(LED_ERR, 2);
-  pinMode(LED_HB, OUTPUT);
-  pulse(LED_HB, 2);
 }
 
 int error=0;
@@ -439,31 +433,21 @@ int avrisp() {
   case 'B':
     fill(20);
     set_parameters();
-    empty_reply();
     break;
-  case 'E': // extended parameters - ignore for now
-    fill(5);
-    empty_reply();
-    break;
-
   case 'P':
     start_pmode();
-    empty_reply();
     break;
   case 'U': // set address (word)
     here = getch();
     here += 256 * getch();
-    empty_reply();
     break;
 
   case 0x60: //STK_PROG_FLASH
     low = getch();
     high = getch();
-    empty_reply();
     break;
   case 0x61: //STK_PROG_DATA
     data = getch();
-    empty_reply();
     break;
 
   case 0x64: //STK_PROG_PAGE
