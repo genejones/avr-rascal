@@ -1,11 +1,9 @@
-/*
+﻿/*
 *    Secret Robot
 *    Reprogram an arduino anywhere!
 *    Uses an Electric Imp, some hardware, some code, and some magic.
-*	All you need is a WiFi connection at your Arduino deploy location.
+*    All you need is a WiFi connection at your Arduino deploy location.
 *
-*
-*	Warning: semi-literate programming used. I ain't Knux w/ Tex, that's for sure...
 *
 *	released under CC-A 3.0; no guarantee of any kind is made for this code
 */
@@ -13,199 +11,153 @@
 /*
 *
 * This code is used server (agent) side.
-* I lknow there's...a lot here
-* It's all important though. Most of it only deals with the initial setup (getting the oAuth toekn from Github)
 */
 
-//define per-user constants
-const OWNER_NAME = "genejones"; //your Github user-name
-const REPO_NAME = "blink"; //your Github REPO_NAME
-const FILE_PATH = ".build/uno/firmware.hex"; //the path to the .hex file within the repo. By default, using the ino build-system, it should be './build/uno/firmware.hex'
 const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
-//can also be within a folder, e.g. 'hardware/avr/flash.hex'
 
 server.log("agent started on "+http.agenturl());
 
-GITHUB_TOKEN <- "837acf5d5b4b2d6bab0daab04c48635c3a70f9e8";
-
-//general constants. Don't modify unless you know what you are doing.
-GITHUB_URL_BASE <- "https://api.github.com/repos/" + OWNER_NAME + "/" + REPO_NAME;
-server.log("running against " + GITHUB_URL_BASE);
-
-//define device constants
-
-//taken from 28.3 and 28.5 in the Atmel AVR doc
-//signature is what we expect the value to be
-//flash size is how many words are present
-//each word is 2 bytes long, so a Flash Size of 1600 is 32 Kb
-targets <- {
-"ATMEGA328P" : {"SIG":"\x1e\x95\x0f", "FLASH_SIZE":16384},
-"ATMEGA328" : {"SIG":"\x1e\x95\x14", "FLASH_SIZE":16384},
-"ATMEGA168A" : {"SIG":"\x1e\x94\x06", "FLASH_SIZE":8192},
-}
-
-function router(request, res){
-	try{
-			switch(request.path){
-				case "/updateAVR":
-					server.log("github request made...");
-					github_request(request, res)
-				default:
-					if (request.method == "OPTIONS" && request.path == ""){
-						res.header("ALLOW", "GET,PUT,DELETE,OPTIONS");
-						res.send(200, "OK");
-					}
-					else if (request.method == "GET" && request.path == ""){
-						res.send(200, "This Rascal needs setup, captain!");
-					}
-					res.send(404, "Resource Does Not Exist");
-			}
-	}
-	catch(e){
-		res.send(500, "Server Error: " + e);
-		raise(e);
-	}
-}
-
-http.onrequest(router);
-
-function github_request(request, res){
-	switch (request.method){
-		case "POST":
-			try{
-				local github = http.jsondecode(request.body);
-				//Someone made a request asking me to flash some code to an AVR!
-				//I'll get right to that...wait a second...
-				//what if someone kept spamming me with re-write requests
-				//The AVR would never get around to doing anyting useful!
-				//or they could be trying to have us revert to an older commit!
-				//or some other nefarious thing!
-				//We will be diligent, wary, and awesome.
-				//Let no unhallowed code pass through.
-				
-				if (github.repository.owner.name == OWNER_NAME){
-					//Alright Mr. Request...who sent you?
-					//Oh, I see from this note you carry that you were sent on my behalf by Github.
-					//And, you also carry the secret pass phrase me and Github setup a while ago...
-					//Hmm. Well, that's not enough proof. Let's see if Github backs up your story.
-					//all request IPs should be within the ranges of: 204.232.175.64/27, 192.30.252.0/22
-					local canidateCommit = github.commits[0].id;
-					server.log("canidate Commit " + canidateCommit);
-					//updateGithubStatus(canidateCommit, "pending", "Secret Robot is uploading everything now");
-					//Github, was the .hex file updated  on my repository recently?
-					server.log(GITHUB_URL_BASE + "/contents/" + FILE_PATH);
-					hexFileInfoResponse <- http.get(GITHUB_URL_BASE + "/contents/" + FILE_PATH, {"Accept":"application/vnd.github.raw", "User-Agent" : "Secret Robot/Imp Agent", "Authorization":getAuthority()} ).sendsync();
-					if (hexFileInfoResponse.statuscode == 200){
-						server.log("good response from github");
-						//I was able to reach out to my friend at Github. What did he say?
-						hexInfo <- http.jsondecode(hexFileInfoResponse.body);
-                        server.log(hexInfo.sha);
-						if (hexInfo.sha == canidateCommit){
-							//ensure the most recent update to the .hex occured on this most recent commit
-							//no need to reset if, for instance, the README was the only thing affected...
-							update_avr(hexInfo.bindenv(this));
-							//All right, let's get to the .hex writing!
-							//update_avr(hexInfo.html_url);
-						}
-					}
-					else{server.log(hexFileInfoResponse.body + hexFileInfoResponse.statuscode);}
-				}
-				res.send(200, "Hex Updated");
-				}
-				catch (e){
-					res.send(200, "Are you a hacker? Your JSON is all wrong: "+e);
-				}
-		case "OPTIONS":
-			res.header("ALLOW", "POST,OPTIONS");
-			res.send(200, "Allowed methods are POST. POST should be JSON formated according to <a href='https://help.github.com/articles/post-receive-hooks'>Github</a>. We check with Github to ensure a valid commit, so don't try anything funny.");
-			break;
-		default:
-			res.send(405, "Method not implemented. See HTTP OPTIONS for valid options. Are you lost?");
-			break;
-	}
-}
-
-function update_avr(info){
+function update_avr(fileURL){
 	//expects a table, with "content" containing the actual, raw, .hex file...
 	//and "length" as well, which we use to determine the length, funnily enough
 	try{
-		//alright, let's get started by telling Github that we are starting the deploy process
-        server.log("updating the avr...");
-		updateGithubStatus(info.sha, "pending", "Rascal is on the job!");
-		//this provides a nice, easy wasy to see the status of our deploy
-		
-		local target_properties = targets[TARGET_NAME];
-		//find out what our device is, and it's capabilities
-		if (info.size > target_properties.size){
-			//our target has too small of a flash memory
-			//this should have gotten caught by the Garbage collection process
-			raise ("Flash memory smaller than flash program");
-		}
-		
-        server.log("sending over to the Imp");
-		device.send("avr firmware change", target_properties, info.content); //just send the code right over to the Imp
-		//it's in his hands now.
-		
-		device.on("avr reflash success", function (){
-			//we are all done now!
-			updateGithubStatus(info.sha, "success");
-			//alter the github status to reflect our awesomeness
-		});
+			server.log("grabbing file..");
+			file <- http.get(fileURL).sendsync();
+			server.log("status was " + file.statuscode);
+			if (file.statuscode == 200){
+				hexItUp(file.body);
+			}
+			device.on("avr reflash success", function (t){
+				//we are all done now!
+				server.log("flash success!");
+				//maybe tell Twitter about our success?
+			});
+			device.on("next_chunk", chunkLines);
 	}
 	catch (e){
 		//something went horribly wrong during the deploy process
 		//sigh
 		//log it
 		server.log("Error during update process: "+e);
-		//and tell the whole world about our mistake on Github
-		updateGithubStatus(info.sha, "failure");
-		//wait, what? Too late now. Nobody goes to our Github page anyway, I'm sure it's fine...
 	}
 }
 
-function updateGithubStatus(commitID, status, description){
-	local headers = {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":getAuthority()};
-	local payload = http.jsonencode({"state":status, "description":description});
-	statusUpdatedRequest <- http.post(GITHUB_URL_BASE + "/statuses/" + commitID, headers, payload).sendsync();
-	if (statusUpdatedRequest.statuscode == 201){
-		server.log("Updated successfully");
-	}
-	else{
-		server.log(statusUpdatedRequest.body);
-	}
+//start hex stuff:
+//This file is for understanding .hex files
+//It has two main functions
+//The first function breaks up the .hex by line breaks
+//The second analyzes each line, and turns the .hex into a binary blob
+
+//http://www.sbprojects.com/knowledge/fileformats/intelhex.php
+
+function splitHex(hexString){
+	//split each instruction in the hex File by newline instructions (0x0D0A)
+	local lines = split(hexString, "\r\n");
+	return lines;
 }
 
-function setUpHook(){
-	//sets up a post-commit hook on this agent url,
-	//so that we get notified when hooks occur
-	//and can update teh AVR accordingly
-	local body = http.jsonencode({
-		"name":"web",
-		"active": true,
-		"events": [
-			"push"
-		],
-		"config": {
-			"url" : http.agenturl()+"/updateAVR",
-			"content_type": "json",
+//then split lines into chunks of about 64 lines at a time (which is 64*16 bytes, or 1024)
+
+programPosition <- 0;
+function chunkLines(t){
+	server.log("chunk requested by device");
+	local chunk_size = 64; //64 lines at a time works out to be 1024 data bytes at a time, plus addresses...
+	if (len(programData) > programPosition + chunk_size){
+		local chunkTable = [];
+		for (local i=0; i < programPosition + chunk_size; i++){
+			chunkTable[i] = programData[i + programPosition]
 		}
-	});
-	response <- http.post(GITHUB_URL_BASE + "/hooks" {"User-Agent" : "Secret Robot/Imp Agent", "Authorization":getAuthority()}, body).sendsync();
-	switch(response.statuscode){
-		case 201:
-			server.log("Hook was setup correctly!");
-			break;
-		case 422:
-			server.log("Hook already exists on this repository");
-			break;
-		default:
-			server.log("Error occured within " + response.statuscode);
-			break;
+		device.send("next_chunk", chunkTable);
+		programPosition = programPosition + chunk_size;
+		server.log(format("sent chunk, at position %s of %s" %programPosition, len(programData)));
+	}
+	else {
+		//we don't have a full 64 lines, so give the remaining lines as our chunk
+		local chunkTable = [];
+		for (local i=0; i < programPosition + chunk_size; i++){
+			chunkTable[i] = programData[i + programPosition]
+		}
+		device.send("next_chunk", chunkTable);
 	}
 }
 
-function getAuthority(){
-	return "Basic " + http.base64encode(OWNER_NAME + ":" + GITHUB_TOKEN);
+function extractAddressAndData(hexString){
+	local lines = splitHex(hexString);
+	for (local i=0; i<lines.len(); i++){
+		local result = understandHex(lines[i]);
+	}
 }
 
-//setUpHook();
+function convertHexToInteger(hex){
+	//expects a string representing the hexidecimal of a single byte
+	
+	// see http://devwiki.electricimp.com/doku.php?id=webcolor&s[]=hex
+	//I basically took the above, and add extra checks
+	local result = 0;
+	local shift = hex.len() * 4;
+	for (local d=0; d<hex.len(); d++){
+		local digit;
+		// convert ascii such that it is case insensitive
+		if(hex[d] >= 0x61 && hex[d] <= 0x66){ //if the hex digit is greater than or equal to 'a', but less than or greater than 'f'
+			digit = hex[d] - 0x57;
+		}
+		else if(hex[d] >= 0x41 && hex[d] <= 0x46){//if the hex digit is less than or equal to 'A', but less than or greater than 'F'
+			 digit = hex[d] - 0x37; //shift value downwards by 55 (decimal), such that 'A'  = 10 (decimal), and 'F' = 16
+		}
+		else if (hex[d] >= 0x30 && hex[d] <= 0x39){ //if the digit is greater or equal to 0, but less than or equal to 9
+			 digit = hex[d] - 0x30; //move the value downwards by 48 (decimal), such that 0 (ascii) represents 0 (integer), and 9 (ascii) represents 9 (integer)
+		}
+		else{
+			throw (format("Error in hexadecimal conversion: value outside of expected ranges (0-9, A-F, a-f). Value was %x", hex[d]));
+		}
+
+		// Accumulate digit
+		shift -= 4;
+		result += digit << shift;
+	}
+	return result;
+}
+
+function integerToBlob(integer){
+	local blob_result = blob(1);
+	blob_result.writen(integer, 'b'); //write the integer result as an unsigned 8-bit integer (basically, a single byte)
+	return blob_result;
+}
+
+programData <- [];
+
+function hexItUp(raw_hex_file){
+	local raw_lines = splitHex(raw_hex_file);
+	server.log("hexItUp");
+	foreach (i,raw_line in raw_lines){
+		local result = understandHex(raw_line);
+		server.log(format("parsed line %04d", i));
+		programData.append(result);
+	}
+	//instruct the device to begin downloading our data...
+	device.send("programModeBegin", 1);
+}
+
+//needs hex to be split by line...
+function understandHex(hexLine){
+	if (!hexLine[0] == ':'){
+		throw ("Error: hex format not correct, must contain : on start of each line");
+	}
+	local byteCount = convertHexToInteger(hexLine.slice(1,2) );
+	local address = blob(2);
+	address.writen(convertHexToInteger(hexLine.slice(3,4) ), 'b');
+	address.writen(convertHexToInteger(hexLine.slice(5,6) ), 'b');
+	local recordType = hexLine[8];
+	local dataPayload = blob(byteCount);
+	for (local i =0; i<byteCount; i++){
+		local datum = convertHexToInteger(hexLine.slice(8 + i, 9 + i) );
+		dataPayload.writen(datum, 'b');
+	}
+	//I am not checking the checksum, HTTPS checksum already ensures integrity
+	//if the checksum fails, we have bigger problems, so let's just assume
+	results <- {"recordType":recordType, "address":address, "dataPayload":dataPayload, "byteCount":byteCount};
+	return results;
+}
+
+update_avr("https://raw.github.com/genejones/blink/master/.build/uno/firmware.hex");
+//testing...
