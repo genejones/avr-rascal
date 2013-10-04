@@ -50,7 +50,6 @@ agent.on("programModeBegin", function(t){
 class ArduinoProgrammer {
 	
 		resetPin = hardware.pin7;
-		serial = hardware.uart12.configure(PROGRAM_SERIAL_SPEED, 8, PARITY_NONE, 1, NO_CTSRTS);
 		statusLEDPin = hardware.pin8;
 		progLEDPin = hardware.pin9;
 		
@@ -61,6 +60,8 @@ class ArduinoProgrammer {
 		hardware.pin7.configure(DIGITAL_OUT_OD_PULLUP) //this will be our reset pin
 		hardware.pin8.configure(DIGITAL_OUT) //this will be our LED pin
 		hardware.pin9.configure(DIGITAL_OUT) //this will be our LED pin
+		
+		hardware.uart12.configure(PROGRAM_SERIAL_SPEED, 8, PARITY_NONE, 1, NO_CTSRTS); //setup the serial lines...
 		
 		//blank out the LEDs to start with...
 		progLEDPin.write(0);
@@ -74,16 +75,20 @@ class ArduinoProgrammer {
 			resetAVR();
 			enable_programming();
 			//verify_signature();
-			program();
+			requestFirstChunk();
 			server.log("Successfully programmed AVR with new .hex file");
 		}
 		catch (error) {
 			server.log("ERROR. Programming failed due to "+error);
 			attempt++;
 			if (attempt<3){
-				program(); //attempt to program again, but only if this is our second or less attempt
+				requestFirstChunk(); //attempt to program again, but only if this is our second or less attempt
 			}
 		}
+	}
+	
+	function requestFirstChunk(){
+		agent.send("next_chunk", "please");
 	}
 	
 	function resetAVR(){
@@ -94,22 +99,9 @@ class ArduinoProgrammer {
 		imp.sleep(0.05); //wait 50ms to allow the AVR to wake back up
 	}
 	
-	function send_command(){
-		serial.write(command + STK_CRC_EOP);
-		serial.flush();
-		local b = serial.read();
-		response = blob(1);
-		while( b!= STK_OK){
-			if(b >= 0){
-				response.writen(b);
-			}
-			local b = serial.read();
-		}
-		return response;
-	}
 	
 	function enable_programming(){
-		response = send_command(PROG_ENABLE);
+		response = send_command([STK_ENTER_PROGMODE]);
 		if (response[2] != STK_OK){
 			//we expect the third byte recieved to be the same as the second byte we sent; if not, we are not in sync
 			throw "Error in programming enable: not in sync";
@@ -118,7 +110,7 @@ class ArduinoProgrammer {
 	}
 	
 	function exit_programming(){
-		response = send_command(STK_LEAVE_PROGMODE);
+		response = send_command([STK_LEAVE_PROGMODE]);
 		if (response[2] != STK_OK){
 			//we expect the third byte recieved to be the same as the second byte we sent; if not, we are not in sync
 			throw "Error in programming enable: not in sync";
@@ -130,7 +122,7 @@ class ArduinoProgrammer {
 	function program(chunk){
 		statusLEDPin.write(1);
 		local finished = 0;
-		for (local i=0; i<len(chunk); i++){
+		for (local i=0; i<chunk.len(); i++){
 			local progResult = progLine(chunk[i]);
 			if(progResult == "exitProgMode"){
 				finished = 1;
@@ -146,26 +138,33 @@ class ArduinoProgrammer {
 		}
 	}
 	
-	function verify_signature(){
-		//we need to see if the device signature is correct
-		//we DO NOT want to program an ATTiny8 as if it was an ATMega328
-		observed_sig = send_command(SIGNATURE_CHECK);
-		observed_sig = observed_sig.slice(0, 3);
-		if (target.SIG != observed_sig){
-			throw "Target device signature was incorrect. Expected "+target.SIG+" but recieved "+observed_sig;
+	function send_command(command_array){
+		foreach (command in command_array){
+			hardware.uart12.write(command);
 		}
-		return 1;
-		//everything checked out!
+		hardware.uart12.write(STK_CRC_EOP);
+		hardware.uart12.flush();
+		local b = hardware.uart12.read();
+		local response = blob(1);
+		while( b!= STK_OK){
+			if(b >= 0){
+				response.writen(b);
+			}
+			local b = hardware.uart12.read();
+		}
+		return response;
 	}
+	
+	
 	function progLine(hexLine){
 		//program each individual line of the code with this!
 		if (hexLine.recordType = '0'){
 			//record is data, program chip...
-			send_command(STK_LOAD_ADDRESS + hexLine.address);
+			send_command([STK_LOAD_ADDRESS, hexLine.address]);
 			//#55#00#00#20 STK_LOAD_ADDRESS, 0װ000(address location)
 			//now write the data to the address...
-			send_command(STK_PROGRAM_PAGE + byteCount + 'F' +  hexLine.dataPayload);
-			//STK_PROGRAM_PAGE, 0װ080 (page size), ҆Ҩflash memory), data bytesŬSYNC_CRC_EOP
+			send_command([STK_PROGRAM_PAGE, byteCount,  'F',  hexLine.dataPayload]);
+			//STK_PROGRAM_PAGE, 0װ080 (page size), ҆Ҩflash memory), data bytes SYNC_CRC_EOP
 			imp.sleep(0.045); //wait 4.5ms until the flash location has been written to
 			return 1;
 		}

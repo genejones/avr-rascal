@@ -61,15 +61,15 @@ function splitHex(hexString){
 programPosition <- 0;
 function chunkLines(t){
 	server.log("chunk requested by device");
-	local chunk_size = 64; //64 lines at a time works out to be 1024 data bytes at a time, plus addresses...
-	if (len(programData) > programPosition + chunk_size){
+	local chunk_size = 64; //64 lines at a time works out to be 1024 data bytes at a time, plus addresses and overhead...still plenty of space in RAM
+	if ( programData.len() > programPosition + chunk_size){
 		local chunkTable = [];
 		for (local i=0; i < programPosition + chunk_size; i++){
-			chunkTable[i] = programData[i + programPosition]
+			chunkTable.append(programData[i + programPosition]);
 		}
 		device.send("next_chunk", chunkTable);
 		programPosition = programPosition + chunk_size;
-		server.log(format("sent chunk, at position %s of %s" %programPosition, len(programData)));
+		server.log(format("sent chunk, at position %3d of %3d" programPosition, programData.len()));
 	}
 	else {
 		//we don't have a full 64 lines, so give the remaining lines as our chunk
@@ -131,7 +131,7 @@ function hexItUp(raw_hex_file){
 	server.log("hexItUp");
 	foreach (i,raw_line in raw_lines){
 		local result = understandHex(raw_line);
-		server.log(format("parsed line %04d", i));
+		//server.log(format("parsed line %04d", i));
 		programData.append(result);
 	}
 	//instruct the device to begin downloading our data...
