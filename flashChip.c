@@ -30,6 +30,7 @@ PROGRAM_SERIAL_SPEED <- 115200; //the baud for UNO programming
 //Duemilanove 328P requires 57600, 168P based programm at 19200 baud
 
 STK_ENTER_PROGMODE <- 0x50;
+STK_GET_SYNCH <- 0x30;
 STK_CRC_EOP <- 0x20;
 STK_OK <- 0x10;
 CHIP_ERASE <- "\xAC\x80\x00\x00";
@@ -38,6 +39,8 @@ SIGNATURE_CHECK <- "\x30\x00";
 SYNC_CHECK_PROG <- 0x53;
 STK_LOAD_ADDRESS <- 0x55;
 STK_LEAVE_PROGMODE <- 0x51;
+
+MAX_CHIP_RESPONSE_DELAY <- 0.1; //if the chip doesn't repsond within 100ms, assume the process failed.
 
 agent.on("programModeBegin", function(t){
 	server.log("got told to do a program by the agent");
@@ -49,7 +52,7 @@ agent.on("programModeBegin", function(t){
 
 class ArduinoProgrammer {
 	
-		resetPin = hardware.pin7;
+		resetPin = hardware.pin2;
 		statusLEDPin = hardware.pin8;
 		progLEDPin = hardware.pin9;
 		
@@ -57,11 +60,11 @@ class ArduinoProgrammer {
 
 	constructor(){
 		//configure hardware for our usage
-		hardware.pin7.configure(DIGITAL_OUT_OD_PULLUP) //this will be our reset pin
+		hardware.pin2.configure(DIGITAL_OUT_OD_PULLUP) //this will be our reset pin
 		hardware.pin8.configure(DIGITAL_OUT) //this will be our LED pin
 		hardware.pin9.configure(DIGITAL_OUT) //this will be our LED pin
 		
-		hardware.uart12.configure(PROGRAM_SERIAL_SPEED, 8, PARITY_NONE, 1, NO_CTSRTS); //setup the serial lines...
+		hardware.uart57.configure(PROGRAM_SERIAL_SPEED, 8, PARITY_NONE, 1, NO_CTSRTS); //setup the serial lines...
 		
 		//blank out the LEDs to start with...
 		progLEDPin.write(0);
@@ -70,21 +73,12 @@ class ArduinoProgrammer {
 		agent.on("next_chunk", program.bindenv(this));
 	}
 	function programAVR(){
-	server.log("Starting AVR programming process now");
-		try{
-			resetAVR();
-			enable_programming();
-			//verify_signature();
-			requestFirstChunk();
-			server.log("Successfully programmed AVR with new .hex file");
-		}
-		catch (error) {
-			server.log("ERROR. Programming failed due to "+error);
-			attempt++;
-			if (attempt<3){
-				requestFirstChunk(); //attempt to program again, but only if this is our second or less attempt
-			}
-		}
+		server.log("Starting AVR programming process now");
+		getSynch();
+		enable_programming();
+		//verify_signature();
+		requestFirstChunk();
+		server.log("Successfully programmed AVR with new .hex file");
 	}
 	
 	function requestFirstChunk(){
@@ -92,11 +86,21 @@ class ArduinoProgrammer {
 	}
 	
 	function resetAVR(){
+		server.log("ordering a reset!");
 		progLEDPin.write(1); //let the user know a program is in progress
 		resetPin.write(0); //pull pin7 low to reset the system
 		imp.sleep(0.25); //and wait .25s to ensure the AVR resets
-		resetPin.write(1); //
+		resetPin.write(1); //and pull the AVR back up...
 		imp.sleep(0.05); //wait 50ms to allow the AVR to wake back up
+	}
+	
+	function getSynch(){
+		resetAVR();
+		server.log("set sync...");
+		local getSync = [STK_GET_SYNCH];
+		send_command_ignore_response(getSync);
+		send_command(getSync);
+		server.log("reset completed successfully");
 	}
 	
 	
@@ -138,19 +142,29 @@ class ArduinoProgrammer {
 		}
 	}
 	
-	function send_command(command_array){
+	function send_command_ignore_response(command_array){
 		foreach (command in command_array){
-			hardware.uart12.write(command);
+			hardware.uart57.write(command);
 		}
-		hardware.uart12.write(STK_CRC_EOP);
-		hardware.uart12.flush();
-		local b = hardware.uart12.read();
-		local response = blob(1);
+		hardware.uart57.write(STK_CRC_EOP);
+		hardware.uart57.flush();
+	}
+	
+	function send_command(command_array){
+		//expects an array
+		foreach (command in command_array){
+			hardware.uart57.write(command);
+		}
+		hardware.uart57.write(STK_CRC_EOP);
+		hardware.uart57.flush();
+		local b = hardware.uart57.read();
+		local response = [];
+		//needs some kind of timeout function here...
 		while( b!= STK_OK){
 			if(b >= 0){
-				response.writen(b);
+				response.append(b);
 			}
-			local b = hardware.uart12.read();
+			local b = hardware.uart57.read();
 		}
 		return response;
 	}

@@ -13,15 +13,13 @@
 * This code is used server (agent) side.
 */
 
-const TARGET_NAME = "ATMEGA328P"; //the type of your AVR, choose among the targets table below. ATmega328P is typical for Arduino Uno and Diecemillia.
-
 server.log("agent started on "+http.agenturl());
 
 function update_avr(fileURL){
 	//expects a table, with "content" containing the actual, raw, .hex file...
 	//and "length" as well, which we use to determine the length, funnily enough
 	try{
-			server.log("grabbing file..");
+			server.log("grabbing file at " + fileURL);
 			file <- http.get(fileURL).sendsync();
 			server.log("status was " + file.statuscode);
 			if (file.statuscode == 200){
@@ -56,12 +54,12 @@ function splitHex(hexString){
 	return lines;
 }
 
-//then split lines into chunks of about 64 lines at a time (which is 64*16 bytes, or 1024)
-
 programPosition <- 0;
+//we need to split all those lines into digestible chunks for the device
+//32 lines per chunk gives low memory usage and low network delays.
 function chunkLines(t){
 	server.log("chunk requested by device");
-	local chunk_size = 64; //64 lines at a time works out to be 1024 data bytes at a time, plus addresses and overhead...still plenty of space in RAM
+	local chunk_size = 32; //32 lines at a time works out to be 512 data bytes at a time, plus addresses and overhead...still plenty of space in RAM
 	if ( programData.len() > programPosition + chunk_size){
 		local chunkTable = [];
 		for (local i=0; i < programPosition + chunk_size; i++){
@@ -72,7 +70,7 @@ function chunkLines(t){
 		server.log(format("sent chunk, at position %3d of %3d" programPosition, programData.len()));
 	}
 	else {
-		//we don't have a full 64 lines, so give the remaining lines as our chunk
+		//we don't have a full 32 lines, so give the remaining lines as our chunk
 		local chunkTable = [];
 		for (local i=0; i < programPosition + chunk_size; i++){
 			chunkTable[i] = programData[i + programPosition]
